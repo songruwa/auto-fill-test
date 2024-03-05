@@ -1,11 +1,16 @@
+from openai import OpenAI
+import json
+
+from dotenv import load_dotenv
+import os
+
 path_ = "/Users/luke/Downloads/rb_document_intelligence-main/birth_certificates/indian_birth_certificate_sample.jpeg"
 with open(path_, "rb") as f:
     doc = f.read()
     poller = document_analysis_client.begin_analyze_document("prebuilt-document", doc)
     result = poller.result()
     
-OPENAI_API_KEY = "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"
-import json
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 def generate_from_gpt(prompt, max_tokens, oai_key=OPENAI_API_KEY, temperature=0):
     from openai import OpenAI
     client = OpenAI(api_key=oai_key)
