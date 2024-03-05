@@ -8,13 +8,19 @@ from flask import Flask, request, jsonify
 from openai import OpenAI
 import json
 
+from dotenv import load_dotenv
+import os
+
+# Load environment variables
+load_dotenv()
+
 # Build the Flask router
 app = Flask(__name__)
 
 # This is proof of conecpt, Please use environment variables for authentications
-key = "784f94c9ebb94ac787f3cd8423ecb4a3"
-endpoint = "https://leazyai-instance.cognitiveservices.azure.com/"
-OPENAI_API_KEY = "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"
+key = os.getenv('KEY')
+endpoint = os.getenv('ENDPOINT')
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
 
 # formatting function
