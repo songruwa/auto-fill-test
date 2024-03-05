@@ -7,6 +7,7 @@ import sys
 from flask import Flask, request, jsonify
 from openai import OpenAI
 import json
+import requests
 
 from dotenv import load_dotenv
 import os
@@ -551,11 +552,13 @@ def generate_from_gpt(prompt, max_tokens, oai_key=OPENAI_API_KEY, temperature=0)
         ],
         seed=42,
         temperature=temperature,
-        max_tokens=max_tokens,
-        response_format={ "type": "json_object" }
+        max_tokens=max_tokens
+        # Removed the response_format parameter for simplicity, assuming text response is sufficient
     )
+    print(response)
     res = response.choices[0].message.content
     return res
+
 
 @app.route('/analyze_document', methods=['POST'])
 def analyze_document():
