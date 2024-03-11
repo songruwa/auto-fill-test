@@ -1,3 +1,11 @@
+# Mar 10 meeting notes:
+# Input is a URL to the document; change to a file as input
+# Second: gpt model; change chage model as a input parameter; let customer choose the model they prefer
+
+# repo里不保留Route；本地里保留route，然后部署到ec2（eazy-article-etl-ec2）；然后设计swaggerUI页面（让gpt写）（check swaggerUI的repo）
+
+# check repo：legal-article
+
 # import the necessary packages
 import os
 from azure.ai.formrecognizer import DocumentAnalysisClient
@@ -295,18 +303,29 @@ def collect_info_state_ID(user_id, user_dict, key_val):
     
     return user_dict
 
+def collect_info_birth_certificate(user_id, user_dict, key_val):
+    cur_key, cur_val = key_val
+    if cur_key == "Date of Birth":
+        user_dict[user_id]["DOB"] = str(cur_val)
+    elif cur_key == "Father's Name":
+        user_dict[user_id]["Father_Information"] = str(cur_val)
+    elif cur_key == "Mother's Name":
+        user_dict[user_id]["Mother_Information"] = str(cur_val)
+    
+    return user_dict
+
     
 # general document model
-def analyze_general_documents(docUrl, docType = None, clientID = None):
-    # sample document
-    # docUrl = "https://raw.githubusercontent.com/Azure-Samples/cognitive-services-REST-api-samples/master/curl/form-recognizer/sample-layout.pdf"
+def analyze_general_documents(file_doc, docType = None, clientID = None):
 
     # create your `DocumentAnalysisClient` instance and `AzureKeyCredential` variable
     document_analysis_client = DocumentAnalysisClient(endpoint=endpoint, credential=AzureKeyCredential(key))
     result_dict = create_dict(clientID)
-    poller = document_analysis_client.begin_analyze_document_from_url(
-            "prebuilt-document", docUrl)
+    poller = document_analysis_client.begin_analyze_document(
+           "prebuilt-invoice", document=file_doc, locale="en-US"
+    )
     result = poller.result()
+    print("analyze_general_documents: ", result.content)
 
     for style in result.styles:
         if style.is_handwritten:
@@ -415,7 +434,7 @@ def analyze_general_documents(docUrl, docType = None, clientID = None):
 
 
 # prebuilt model: ID documents
-def analyze_identity_documents(identityUrl, docType = None, clientID = None):
+def analyze_identity_documents(file_doc, docType = None, clientID = None):
 # sample document
     #identityUrl = "https://raw.githubusercontent.com/Azure-Samples/cognitive-services-REST-api-samples/master/curl/form-recognizer/rest-api/identity_documents.png"
 
@@ -423,10 +442,11 @@ def analyze_identity_documents(identityUrl, docType = None, clientID = None):
         endpoint=endpoint, credential=AzureKeyCredential(key)
     )
 
-    poller = document_analysis_client.begin_analyze_document_from_url(
-            "prebuilt-idDocument", identityUrl
-        )
+    poller = document_analysis_client.begin_analyze_document(
+           "prebuilt-invoice", document=file_doc, locale="en-US"
+    )
     id_documents = poller.result()
+    print("analyze_identity_documents: ", id_documents.content)
     result_dict = create_dict(clientID)
     key_val = None
 
@@ -485,9 +505,33 @@ def analyze_identity_documents(identityUrl, docType = None, clientID = None):
             elif docType == "state_ID":
                 key_val = ("DateOfBirth", dob.value)
                 result_dict = collect_info_state_ID(clientID, result_dict, key_val)
+            elif docType == "birth_certificate":
+                key_val = ("Date of Birth", dob.value)
+                result_dict = collect_info_birth_certificate(clientID, result_dict, key_val)
             # print(
             #     "Date of Birth: {} has confidence: {}".format(dob.value, dob.confidence)
             # )
+        father_name = id_document.fields.get("FatherName")
+        if father_name:
+            if docType == "birth_certificate":
+                key_val = ("Father's Name", father_name.value)
+                result_dict = collect_info_birth_certificate(clientID, result_dict, key_val)
+            print(
+                "Father's Name: {} has confidence: {}".format(
+                    father_name.value, father_name.confidence
+                )
+            )
+        mother_name = id_document.fields.get("MotherName")
+        if mother_name:
+            if docType == "birth_certificate":
+                key_val = ("Mother's Name", mother_name.value)
+                result_dict = collect_info_birth_certificate(clientID, result_dict, key_val)
+            print(
+                "Mother's Name: {} has confidence: {}".format(
+                    mother_name.value, mother_name.confidence
+                )
+            )
+            
         doe = id_document.fields.get("DateOfExpiration")
         if doe:
             pass
@@ -552,8 +596,8 @@ def generate_from_gpt(prompt, max_tokens, oai_key=OPENAI_API_KEY, temperature=0)
         ],
         seed=42,
         temperature=temperature,
-        max_tokens=max_tokens
-        # Removed the response_format parameter for simplicity, assuming text response is sufficient
+        max_tokens=max_tokens,
+        response_format={ "type": "json_object" }
     )
     print(response)
     res = response.choices[0].message.content
@@ -562,18 +606,28 @@ def generate_from_gpt(prompt, max_tokens, oai_key=OPENAI_API_KEY, temperature=0)
 
 @app.route('/analyze_document', methods=['POST'])
 def analyze_document():
-    data = request.json
-    url = data.get('url')
-    file_type = data.get('file_type', None)
-    user_id = data.get('id', None)
+    # Check if the post request has the file part
+    if 'file' not in request.files:
+        return jsonify({"error": "No file part"}), 400
+    file = request.files['file']
+    # If the user does not select a file, the browser submits an
+    # empty file without a filename.
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+    # Process the file directly from memory
+    # Assuming you have a way to determine file_type and user_id from the file content or another part of the request
+    # For this example, let's fetch them from form data
+    file_type = request.form.get('file_type', None)
+    user_id = request.form.get('user_id', None)
+
 
     # Decide which function to use based on file_type
     if file_type in ["passport", "state_DL", "state_ID"]:
-        result_dict = analyze_identity_documents(url, file_type, user_id)
+        result_dict = analyze_identity_documents(file, file_type, user_id)
 
     # birth certificate
-    elif file_type in ["non_immigrant_visa", "I94", "birth_certificate"]:
-        result_dict = analyze_general_documents(url, file_type, user_id)
+    elif file_type in ["non_immigrant_visa", "I94"]:
+        result_dict = analyze_general_documents(file, file_type, user_id)
     else:
         return jsonify({"error": "Unsupported file type"}), 400
 
@@ -583,10 +637,11 @@ def analyze_document():
 def gpt_analyze():
     data = request.json
     document_url = data.get('url')
-    prompt = data.get('prompt', '')
+    prompt = "Help extract the father's and mother's name from the extracted text of the birth certificate. Provide nationality of the parents if available. Nationality should be COUNTRY NAME. If the information is in a different language, you MUST TRANSLATE it to English.Answer under json keys father_first_name, father_last_name, mother_first_name, mother_last_name, father_nationality, mother_nationality. If any value is in a different language, TRANSLATE TO ENGLISH."
 
     # Fetch the document from the URL
     response = requests.get(document_url)
+    
     document_bytes = response.content
 
     # Analyze the document with Azure Form Recognizer
@@ -600,16 +655,16 @@ def gpt_analyze():
 
     # Extracted content from the document
     extracted_text = result.content
+    print("Extracted text: ", extracted_text)
 
-    # Concatenate prompt with the extracted content for GPT processing
     full_prompt = prompt + "\n" + extracted_text
 
-    # Process with GPT (pseudo-code, adapt according to the actual GPT interaction code)
-    gpt_response = generate_from_gpt(full_prompt, max_tokens=100)  # Adjust parameters as needed
+    gpt_response = generate_from_gpt(full_prompt, max_tokens=200)  # Adjust parameters as needed
 
-    # Process the GPT response and return
-    # Note: Error handling and GPT response parsing should be implemented here
-
+    print(gpt_response)
+    if not gpt_response.isalpha():
+        print("Ran GPT again")
+        gpt_response = generate_from_gpt(f"Translate the non-English part in following content into English: {gpt_response}. Keep the original json format", 100, temperature=0)
     return jsonify(gpt_response)
 
 if __name__ == "__main__":
